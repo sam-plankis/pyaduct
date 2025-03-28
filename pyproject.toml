@@ -1,0 +1,29 @@
+[project]
+name = "pyaduct"
+version = "0.1.0"
+description = "Simple and easy to use message bus, supporting IPC and TCP."
+readme = "README.md"
+authors = [
+    { name = "Sam Plankis", email = "sp-code@pm.me" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.8",
+    "loguru>=0.7.3",
+    "pydantic>=2.11.1",
+    "pyzmq>=26.3.0",
+]
+
+[project.scripts]
+pyaduct = "pyaduct:main.main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "ruff>=0.11.2",
+]
