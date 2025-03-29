@@ -85,6 +85,7 @@ def demo(ctx: Context):
     console.print(f"Client 2 generated event: {event}")
     client_2.publish(event)
     event = test_topic_queue.get(timeout=2)
+    console.print_json(event.model_dump_json())
     console.print(f"Client 1 received event: {event}")
     if client_1.ping("client_2"):
         console.print("Client 1 pinged Client 2 successfully")
