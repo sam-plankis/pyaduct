@@ -75,7 +75,7 @@ def generate_certificates(base_dir: Union[str, os.PathLike]) -> None:
 @pytest.fixture
 def ipc_broker():
     """A fixture that provides an IPC broker for testing."""
-    address = "ipc://waemo"
+    address = "ipc://pyaduct"
     context = Context()
     socket = context.socket(ROUTER)
     socket.bind(address)
@@ -89,7 +89,7 @@ def generate_ipc_client(ctx: Context, client_name: str) -> Client:
     """Generate an IPC client with the given name."""
     assert isinstance(client_name, str), "Client name must be a string"
     socket = ctx.socket(DEALER)
-    address = "ipc://waemo"
+    address = "ipc://pyaduct"
     socket.connect(address)
     client = Client(socket, name=client_name)
     return client
