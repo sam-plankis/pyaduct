@@ -67,15 +67,6 @@ def certs(ctx: Context, directory: Path):
 def demo(ctx: Context):
     """Broker bus type (ipc or tcp)"""
     console = Console()
-    table = Table(title="Demo", show_lines=True)
-    table.add_column("Client", justify="center", style="cyan", no_wrap=True)
-    table.add_column("Topic", justify="center", style="magenta")
-    table.add_column("Event", justify="center", style="green")
-    table.add_column("Response", justify="center", style="red")
-    table.add_column("Status", justify="center", style="yellow")
-    table.add_column("Time", justify="center", style="blue")
-    table.add_row("Client 1", "test_topic", "hello world", "ok", "success", "0.1s")
-    console.print(table)
     _ = ctx
     broker, client_1, client_2 = PyaductFactory().generate_ipc_nodes()
     with console.status("Starting nodes..."):
@@ -95,11 +86,20 @@ def demo(ctx: Context):
         client_1.stop()
         client_2.stop()
         broker.stop()
-    console.print("All nodes stopped successfully; exiting.")
-    request = client_1.generate_request("client_2", "example body")
-    console.print(f"Client 1 generated request: {request}")
-    response = client_1.request(request, timeout=5)
-    if response:
-        console.print(f"Client 1 received response: {response}")
-    else:
-        console.print("Client 1 did not receive a response")
+    table = Table(title="Broker Messages")
+    table.add_column("Message ID", style="cyan")
+    table.add_column("Source", style="magenta")
+    table.add_column("Type", style="blue")
+    table.add_column("Body", style="white")
+    table.add_column("Timestamp", style="yellow")
+    assert broker.store
+    for message in broker.store.messages:
+        table.add_row(
+            str(message.id),
+            message.source,
+            message.type.name,
+            message.body,
+            str(message.timestamp),
+        )
+    console.print(table)
+
