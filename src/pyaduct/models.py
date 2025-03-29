@@ -1,10 +1,10 @@
 import datetime
 from enum import Enum
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .utils import generate_datetime
+from .utils import generate_datetime, generate_uuid7
 
 
 class MessageType(Enum):
@@ -19,7 +19,7 @@ class MessageType(Enum):
 
 
 class Message(BaseModel):
-    id: UUID = Field(default_factory=uuid4)
+    id: UUID = Field(default_factory=generate_uuid7)
     type: MessageType
     timestamp: datetime.datetime = Field(default_factory=generate_datetime)
     source: str

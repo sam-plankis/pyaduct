@@ -11,6 +11,7 @@ from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
 from .models import ACK, Event, Message, Ping, Pong, Register, Request, Response, Subscribe
+from .store import IBrokerStore
 
 
 class BrokerError(BaseException):
@@ -20,10 +21,16 @@ class BrokerError(BaseException):
 
 
 class Broker:
-    def __init__(self, socket: Socket, latency: tuple[int, int] | None = None):
+    def __init__(
+        self,
+        socket: Socket,
+        store: IBrokerStore | None = None,
+        latency: tuple[float, float] | None = None,
+    ):
         assert isinstance(socket, Socket)
         self._latency = latency
         self._socket = socket
+        self.store: IBrokerStore | None = store
         self.clients: dict[str, bytes] = {}
         self._stop = threading.Event()
         self._threads: dict[str, Thread] = {}
@@ -113,6 +120,8 @@ class Broker:
             logger.trace(log)
 
     def _handle_register(self, register: Register, client_id: bytes):
+        if self.store:
+            self.store.add_message(register)
         if register.source not in self.clients:
             self.clients[register.source] = client_id
         ack = ACK(
@@ -121,8 +130,12 @@ class Broker:
             request_id=register.id,
         )
         self._tx_queue.put((ack, None), block=False)
+        if self.store:
+            self.store.add_message(ack)
 
     def _handle_subscribe(self, subscribe: Subscribe, client_id: bytes):
+        if self.store:
+            self.store.add_message(subscribe)
         _ = client_id
         if subscribe.topic not in self._topics:
             self._topics[subscribe.topic] = []
@@ -133,6 +146,8 @@ class Broker:
             request_id=subscribe.id,
         )
         self._tx_queue.put((response, None), block=False)
+        if self.store:
+            self.store.add_message(response)
 
     def _handle_event(self, event: Event, client_id: bytes):
         _ = client_id
@@ -140,6 +155,8 @@ class Broker:
             for client in self._topics[event.topic]:
                 client_id = self.clients[client]
                 self._tx_queue.put((event, client_id), block=False)
+                if self.store:
+                    self.store.add_message(event)
         else:
             logger.warning(f"No subscribers for topic: {event.topic}")
 
@@ -149,6 +166,8 @@ class Broker:
             return
         _ = client_id
         self._tx_queue.put((request, None), block=False)
+        if self.store:
+            self.store.add_message(request)
 
     def _handle_broker_request(self, request: Request, client_id: bytes):
         clients = ",".join([name for name in self.clients.keys()])
@@ -168,11 +187,15 @@ class Broker:
                 source="broker",
             )
         self._tx_queue.put((response, None), block=False)
+        if self.store:
+            self.store.add_message(response)
 
     def _handle_response(self, response: Response, client_id: bytes):
         _ = client_id
         self._seen.add(response.request_id)
         self._send_response(response)
+        if self.store:
+            self.store.add_message(response)
 
     def __send(self):
         while not self._stop.is_set():

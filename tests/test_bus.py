@@ -9,13 +9,15 @@ def test_ipc_bus(
     ipc_client_2: Client,
 ):
     """Test the IPC broker."""
+    assert ipc_broker.store
     client_1_event_queue = ipc_client_1.subscribe("test_topic")
-    time.sleep(0.1)
     event = ipc_client_2.generate_event("test_topic", "hello world")
     ipc_client_2.publish(event)
     rx_event = client_1_event_queue.get(timeout=2)
     assert isinstance(rx_event, Event)
     assert event.body == "hello world"
+    assert ipc_client_1.ping("client_2")
+    assert len(ipc_broker.store.messages) == 9
 
 
 # def test_tcp_bus(

@@ -100,12 +100,16 @@ class Client:
     def generate_request(
         self,
         target: str,
-        request: Request,
+        body: str,
         timeout: int = 5,
     ) -> Request:
         """Builds a Request so that the source is already populated."""
-        request_str: str = request.model_dump_json()
-        return Request(source=self.name, target=target, body=request_str, timeout=timeout)
+        return Request(
+            source=self.name,
+            target=target,
+            body=body,
+            timeout=timeout,
+        )
 
     def generate_event(self, topic: str, body: str) -> Event:
         """Builds an Event so that the source is already populated."""

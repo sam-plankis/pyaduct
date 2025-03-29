@@ -12,7 +12,7 @@ class BrokerFactory:
         context = Context()
         socket = context.socket(ROUTER)
         socket.bind(address)
-        broker = Broker(socket)
+        broker = Broker(socket, latency=(0.3, 0.7))
         return broker
 
 

@@ -13,6 +13,7 @@ from zmq.auth import create_certificates, load_certificate
 from zmq.auth.thread import ThreadAuthenticator
 
 from pyaduct import Broker, Client
+from pyaduct.store import InmemBrokerStore 
 
 logger.enable("pyaduct")
 
@@ -75,11 +76,12 @@ def generate_certificates(base_dir: Union[str, os.PathLike]) -> None:
 @pytest.fixture
 def ipc_broker():
     """A fixture that provides an IPC broker for testing."""
+    store = InmemBrokerStore()
     address = "ipc://pyaduct"
     context = Context()
     socket = context.socket(ROUTER)
     socket.bind(address)
-    broker = Broker(socket)
+    broker = Broker(socket, store=store, latency=(0.3, 0.7))
     broker.start()
     yield broker
     broker.stop()
