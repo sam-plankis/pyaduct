@@ -9,7 +9,19 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
-from .models import ACK, Event, Message, MessageType, Ping, Pong, Register, Request, Response, Subscribe
+from .models import (
+    ACK,
+    Command,
+    Event,
+    Message,
+    MessageType,
+    Ping,
+    Pong,
+    Register,
+    Request,
+    Response,
+    Subscribe,
+)
 from .utils import generate_random_md5
 
 
@@ -80,13 +92,26 @@ class Client:
 
     def ping(self, target: str) -> bool:
         """Ping a target and wait for a PONG response."""
-        ping = Ping(source=self.name, target=target, request="PING")
+        ping = Ping(source=self.name, target=target)
         if response := self._sync_send(ping, 2):
             if response.type == MessageType.PONG:
                 logger.success(f"{self.name} | PING successful to : {target}")
                 return True
         logger.warning(f"{self.name} | PING failed to : {target}")
         return False
+
+    def get_clients(self) -> list[str] | None:
+        """Returns a list of other clients."""
+        command = Command(
+            source=self.name,
+            target="broker",
+            body="GET_CLIENTS",
+        )
+        response = self._sync_send(command, 2)
+        if response and response.type == MessageType.RESPONSE:
+            clients = response.body.split(",")
+            logger.success(f"{self.name} | Found clients: {clients}")
+            return [client.strip() for client in clients if client.strip()]
 
     def publish(self, event: Event):
         assert isinstance(event, Event), "Event must be of type Event"
@@ -136,7 +161,9 @@ class Client:
                 logger.error(f"{self.name} | Failed to register with broker: {response.body}")
                 raise ClientException("Failed to register with broker")
 
-    def _sync_send(self, message: Ping | Register | Request | Subscribe, timeout: int) -> Response | None:
+    def _sync_send(
+        self, message: Ping | Register | Request | Subscribe, timeout: int
+    ) -> Response | None:
         """Synchronous send. Waits for response."""
         future = self._executor.submit(self._sync_send_check, message)
         response: Response | None = None

@@ -13,7 +13,7 @@ from zmq.auth import create_certificates, load_certificate
 from zmq.auth.thread import ThreadAuthenticator
 
 from pyaduct import Broker, Client
-from pyaduct.store import InmemBrokerStore 
+from pyaduct.store import InmemBrokerStore
 
 logger.enable("pyaduct")
 
@@ -67,10 +67,16 @@ def generate_certificates(base_dir: Union[str, os.PathLike]) -> None:
     create_certificates(keys_dir, "client")
     for key_file in os.listdir(keys_dir):
         if key_file.endswith(".key"):
-            shutil.move(os.path.join(keys_dir, key_file), os.path.join(public_keys_dir, "."))
+            shutil.move(
+                os.path.join(keys_dir, key_file),
+                os.path.join(public_keys_dir, "."),
+            )
     for key_file in os.listdir(keys_dir):
         if key_file.endswith(".key_secret"):
-            shutil.move(os.path.join(keys_dir, key_file), os.path.join(secret_keys_dir, "."))
+            shutil.move(
+                os.path.join(keys_dir, key_file),
+                os.path.join(secret_keys_dir, "."),
+            )
 
 
 @pytest.fixture

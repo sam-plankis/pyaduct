@@ -8,6 +8,7 @@ from .utils import generate_datetime, generate_uuid7
 
 
 class MessageType(Enum):
+    COMMAND = "COMMAND"
     REQUEST = "REQUEST"
     RESPONSE = "RESPONSE"
     EVENT = "EVENT"
@@ -35,6 +36,10 @@ class Request(Message):
     type: MessageType = MessageType.REQUEST
     target: str
     timeout: int = 5
+
+
+class Command(Request):
+    type: MessageType = MessageType.COMMAND
 
 
 class Response(Message):

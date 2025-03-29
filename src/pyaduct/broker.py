@@ -10,7 +10,18 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
-from .models import ACK, Event, Message, Ping, Pong, Register, Request, Response, Subscribe
+from .models import (
+    ACK,
+    Command,
+    Event,
+    Message,
+    Ping,
+    Pong,
+    Register,
+    Request,
+    Response,
+    Subscribe,
+)
 from .store import IBrokerStore
 
 
@@ -96,6 +107,7 @@ class Broker:
             client_id, message_type, rx_model = self._rx_queue.get(block=False)
             assert isinstance(client_id, bytes)
             message_types = {
+                "COMMAND": (Command, self._handle_command),
                 "REQUEST": (Request, self._handle_request),
                 "RESPONSE": (Response, self._handle_response),
                 "EVENT": (Event, self._handle_event),
@@ -161,34 +173,25 @@ class Broker:
             logger.warning(f"No subscribers for topic: {event.topic}")
 
     def _handle_request(self, request: Request, client_id: bytes):
-        if request.target == "broker":
-            self._handle_broker_request(request, client_id)
-            return
         _ = client_id
         self._tx_queue.put((request, None), block=False)
         if self.store:
             self.store.add_message(request)
 
-    def _handle_broker_request(self, request: Request, client_id: bytes):
-        clients = ",".join([name for name in self.clients.keys()])
-        if request.body == "GET_CLIENTS":
+    def _handle_command(self, command: Command, client_id: bytes):
+        _ = client_id  # We don't use client_id for commands
+        current_client = command.source
+        if command.body == "GET_CLIENTS":
+            clients = ",".join([name for name in self.clients.keys() if name != current_client])
             response = Response(
                 body=clients,
-                requestor=request.source,
-                request_id=request.id,
+                requestor=command.source,
+                request_id=command.id,
                 source="broker",
             )
-        else:
-            logger.error(f"Unknown broker request: {request.body}")
-            response = Response(
-                body="Unknown broker request",
-                requestor=request.source,
-                request_id=request.id,
-                source="broker",
-            )
-        self._tx_queue.put((response, None), block=False)
-        if self.store:
-            self.store.add_message(response)
+            self._tx_queue.put((response, None), block=False)
+            if self.store:
+                self.store.add_message(response)
 
     def _handle_response(self, response: Response, client_id: bytes):
         _ = client_id

@@ -1,5 +1,3 @@
-import time
-
 from pyaduct import Broker, Client, Event
 
 
@@ -18,6 +16,7 @@ def test_ipc_bus(
     assert event.body == "hello world"
     assert ipc_client_1.ping("client_2")
     assert len(ipc_broker.store.messages) == 9
+    assert ipc_client_1.get_clients() == ["client_2"]
 
 
 # def test_tcp_bus(

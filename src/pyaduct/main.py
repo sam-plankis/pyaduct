@@ -13,7 +13,13 @@ from pyaduct.factory import BrokerFactory, PyaductFactory
 
 
 @click.group()
-@click.option("-v", "--verbose", is_flag=True, default=False, help="Enables verbose mode")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Enables verbose mode",
+)
 @click.pass_context
 def main(
     ctx: Context,
@@ -102,4 +108,3 @@ def demo(ctx: Context):
             str(message.timestamp),
         )
     console.print(table)
-
