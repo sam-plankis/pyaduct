@@ -173,6 +173,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# VS Code
+.vscode/
+
 # Key files
 *.key
 *.key_secret
