@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -78,7 +80,7 @@ class Client:
             thread.join()
         self._socket.close()
 
-    def subscribe(self, topic: str) -> Queue:
+    def subscribe(self, topic: str) -> Queue[Event]:
         logger.info(f"{self.name} | Subscribing to topic: {topic}")
         subscribe = Subscribe(source=self.name, topic=topic)
         try:
