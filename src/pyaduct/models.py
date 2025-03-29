@@ -32,21 +32,21 @@ class Register(Message):
 class Request(Message):
     type: MessageType = MessageType.REQUEST
     target: str
-    request: str
     timeout: int = 5
+    body: str
 
 
 class Response(Message):
     request_id: UUID
     type: MessageType = MessageType.RESPONSE
     requestor: str
-    response: str
+    body: str
 
 
 class Event(Message):
     type: MessageType = MessageType.EVENT
     topic: str
-    event: str
+    body: str
 
 
 class Subscribe(Message):
@@ -56,14 +56,14 @@ class Subscribe(Message):
 
 class Ping(Request):
     type: MessageType = MessageType.PING
-    request: str = "Ping"
+    body: str = "Ping"
 
 
 class Pong(Response):
     type: MessageType = MessageType.PONG
-    response: str = "Pong"
+    body: str = "Pong"
 
 
 class ACK(Response):
     type: MessageType = MessageType.ACK
-    response: str = "ACK"
+    body: str = "ACK"

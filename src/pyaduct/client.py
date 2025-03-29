@@ -7,7 +7,6 @@ from typing import Callable
 from uuid import UUID
 
 from loguru import logger
-from pydantic import BaseModel
 from zmq import NOBLOCK, Again, Socket
 
 from .models import ACK, Event, Message, MessageType, Ping, Pong, Register, Request, Response, Subscribe
@@ -106,18 +105,17 @@ class Client:
     ) -> Request:
         """Builds a Request so that the source is already populated."""
         request_str: str = request.model_dump_json()
-        return Request(source=self.name, target=target, request=request_str, timeout=timeout)
+        return Request(source=self.name, target=target, body=request_str, timeout=timeout)
 
-    def generate_event(self, topic: str, event: BaseModel) -> Event:
+    def generate_event(self, topic: str, body: str) -> Event:
         """Builds an Event so that the source is already populated."""
-        event_str: str = event.model_dump_json()
-        return Event(source=self.name, topic=topic, event=event_str)
+        return Event(source=self.name, topic=topic, body=body)
 
     def respond(self, request: Request, message: str) -> None:
         response = Response(
             source=self.name,
             requestor=request.source,
-            response=message,
+            body=message,
             request_id=request.id,
         )
         self._tx_queue.put(response, block=False)
@@ -129,9 +127,9 @@ class Client:
         if response := self._sync_send(register, timeout):
             if response.type == MessageType.ACK:
                 self.registered = True
-                logger.success(f"{self.name} | Registered with broker: {response.response}")
+                logger.success(f"{self.name} | Registered with broker: {response.body}")
             else:
-                logger.error(f"{self.name} | Failed to register with broker: {response.response}")
+                logger.error(f"{self.name} | Failed to register with broker: {response.body}")
                 raise ClientException("Failed to register with broker")
 
     def _sync_send(self, message: Ping | Register | Request | Subscribe, timeout: int) -> Response | None:
@@ -140,7 +138,7 @@ class Client:
         response: Response | None = None
         try:
             response = future.result(timeout=timeout)
-            logger.debug(response)
+            logger.success(f"{self.name} | Synchronous send successful: {message.id}")
         except Exception as e:
             logger.error(f"{self.name} | Failed to register: {e}")
             raise e
@@ -166,30 +164,30 @@ class Client:
             if not text:
                 continue
             text = text.decode("utf-8")
-            message_type, body = text.split(" ", 1)
-            message = self.__cast_model(message_type, body)
+            message_type, model = text.split(" ", 1)
+            message = self.__cast_model(message_type, model)
             self._rx_queue.put(message, block=False)
             log = f"\n# {self.name} | RX: {message_type}\n"
             log += f"{message.model_dump_json(indent=2)}"
-            logger.trace(log)
+            logger.debug(log)
 
-    def __cast_model(self, message_type: str, body: str) -> Message:
+    def __cast_model(self, message_type: str, model: str) -> Message:
         if message_type == "RESPONSE":
-            return Response.model_validate_json(body)
+            return Response.model_validate_json(model)
         elif message_type == "PONG":
-            return Pong.model_validate_json(body)
+            return Pong.model_validate_json(model)
         elif message_type == "EVENT":
-            return Event.model_validate_json(body)
+            return Event.model_validate_json(model)
         elif message_type == "PING":
-            return Ping.model_validate_json(body)
+            return Ping.model_validate_json(model)
         elif message_type == "REQUEST":
-            return Request.model_validate_json(body)
+            return Request.model_validate_json(model)
         elif message_type == "REGISTER":
-            return Register.model_validate_json(body)
+            return Register.model_validate_json(model)
         elif message_type == "SUBSCRIBE":
-            return Subscribe.model_validate_json(body)
+            return Subscribe.model_validate_json(model)
         elif message_type == "ACK":
-            return ACK.model_validate_json(body)
+            return ACK.model_validate_json(model)
         else:
             raise Exception(f"Client does not support message type: {type}")
 
@@ -199,7 +197,6 @@ class Client:
             if self._rx_queue.empty():
                 continue
             message = self._rx_queue.get(block=False)
-            logger.debug(f"{self.name} | Handling message: {message}")
             assert isinstance(message, Message)
             if message.type == MessageType.PONG:
                 assert isinstance(message, Pong)
@@ -239,8 +236,8 @@ class Client:
                 continue
             message = self._tx_queue.get(block=False)
             assert isinstance(message, Message)
-            body = f"{message.type.value} {message.model_dump_json()}"
-            self._socket.send_string(body)
+            frame = f"{message.type.value} {message.model_dump_json()}"
+            self._socket.send_string(frame)
             log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
-            logger.trace(log)
+            logger.debug(log)

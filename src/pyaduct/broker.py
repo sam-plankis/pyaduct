@@ -79,14 +79,14 @@ class Broker:
             if not text:
                 continue
             text = text.decode("utf-8")
-            message_type, body = text.split(" ", 1)
-            self._rx_queue.put((client_id, message_type, body), block=False)
+            message_type, model = text.split(" ", 1)
+            self._rx_queue.put((client_id, message_type, model), block=False)
 
     def __handle(self):
         while not self._stop.is_set():
             if self._rx_queue.empty():
                 continue
-            client_id, message_type, body = self._rx_queue.get(block=False)
+            client_id, message_type, rx_model = self._rx_queue.get(block=False)
             assert isinstance(client_id, bytes)
             message_types = {
                 "REQUEST": (Request, self._handle_request),
@@ -99,8 +99,10 @@ class Broker:
             }
             assert message_type in message_types, f"Unknown message type: {message_type}"
             model, function = message_types[message_type]
+            assert issubclass(model, Message)
+            assert isinstance(function, Callable)
             try:
-                message = model.model_validate_json(body)
+                message = model.model_validate_json(rx_model)
                 assert isinstance(message, Message)
             except Exception as e:
                 logger.error(f"Error validating message: {e}")
@@ -150,17 +152,17 @@ class Broker:
 
     def _handle_broker_request(self, request: Request, client_id: bytes):
         clients = ",".join([name for name in self.clients.keys()])
-        if request.request == "GET_CLIENTS":
+        if request.body == "GET_CLIENTS":
             response = Response(
-                response=clients,
+                body=clients,
                 requestor=request.source,
                 request_id=request.id,
                 source="broker",
             )
         else:
-            logger.error(f"Unknown broker request: {request.request}")
+            logger.error(f"Unknown broker request: {request.body}")
             response = Response(
-                response="Unknown broker request",
+                body="Unknown broker request",
                 requestor=request.source,
                 request_id=request.id,
                 source="broker",
