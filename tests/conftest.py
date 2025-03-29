@@ -120,6 +120,7 @@ def tcp_broker(certs, ctx):
     """A fixture that provides an IPC broker for testing."""
     assert isinstance(ctx, Context)
     public_keys_dir, secret_keys_dir = certs
+    logger.debug(f"Public keys dir: {public_keys_dir}, Secret keys dir: {secret_keys_dir}")
     auth = ThreadAuthenticator(ctx)
     auth.start()
     auth.allow("127.0.0.1")

@@ -1,5 +1,6 @@
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Queue
 from threading import Thread
 from typing import Callable
@@ -9,12 +10,14 @@ from loguru import logger
 from pydantic import BaseModel
 from zmq import NOBLOCK, Again, Socket
 
-from .models import Event, Message, Register, Request, Response, Subscribe
+from .models import ACK, Event, Message, MessageType, Ping, Pong, Register, Request, Response, Subscribe
 from .utils import generate_random_md5
 
 
-class ClientException(Exception):
-    pass
+class ClientException(Exception): ...
+
+
+class ResponseTimeout(ClientException): ...
 
 
 class Client:
@@ -43,10 +46,12 @@ class Client:
             thread = Thread(target=target, name=name)
             self._threads[name] = thread
         self._topics: dict[str, Queue] = {}
-        self._rx_messages: dict[UUID, Message] = {}
+        self._pending_requests: dict[UUID, Message] = {}
         self._tx_queue: Queue[Message] = Queue()
-        self._rx_queue: Queue[tuple[str, str]] = Queue()
+        self._rx_queue: Queue[Message] = Queue()
         self.requests: Queue[Request] = Queue()
+        self.responses: dict[UUID, Response] = {}
+        self._executor: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=10)
 
     def start(self):
         for thread in self._threads.values():
@@ -66,20 +71,32 @@ class Client:
         logger.info(f"{self.name} | Subscribing to topic: {topic}")
         subscribe = Subscribe(source=self.name, topic=topic)
         try:
-            self._sync_send(subscribe, 2)
+            thread = Thread(target=self._sync_send, args=(subscribe, 2))
+            thread.start()
         except Exception as e:
             logger.error(f"{self.name} | Failed to subscribe: {e}")
             raise e
         self._topics[topic] = Queue()
         return self._topics[topic]
 
+    def ping(self, target: str) -> bool:
+        """Ping a target and wait for a PONG response."""
+        ping = Ping(source=self.name, target=target, request="PING")
+        if response := self._sync_send(ping, 2):
+            if response.type == MessageType.PONG:
+                logger.success(f"{self.name} | PING successful to : {target}")
+                return True
+        logger.warning(f"{self.name} | PING failed to : {target}")
+        return False
+
     def publish(self, event: Event):
         assert isinstance(event, Event), "Event must be of type Event"
         self._tx_queue.put(event, block=False)
 
-    def request(self, request: Request, timeout: int = 5) -> Response:
+    def request(self, request: Request, timeout: int = 5) -> Response | None:
         assert isinstance(request, Request), "Request must be of type Request"
-        return self._sync_send(request, timeout)
+        if response := self._sync_send(request, timeout):
+            return response
 
     def generate_request(
         self,
@@ -109,34 +126,35 @@ class Client:
         """Register with the broker."""
         timeout: int = 2
         register = Register(source=self.name)
+        if response := self._sync_send(register, timeout):
+            if response.type == MessageType.ACK:
+                self.registered = True
+                logger.success(f"{self.name} | Registered with broker: {response.response}")
+            else:
+                logger.error(f"{self.name} | Failed to register with broker: {response.response}")
+                raise ClientException("Failed to register with broker")
+
+    def _sync_send(self, message: Ping | Register | Request | Subscribe, timeout: int) -> Response | None:
+        """Synchronous send. Waits for response."""
+        future = self._executor.submit(self._sync_send_check, message)
+        response: Response | None = None
         try:
-            self._sync_send(register, timeout)
+            response = future.result(timeout=timeout)
+            logger.debug(response)
         except Exception as e:
             logger.error(f"{self.name} | Failed to register: {e}")
-            return
-        self.registered = True
-
-    def _sync_send(self, message: Request | Register | Subscribe, timeout: int) -> Response:
-        """Synchronous send. Waits for response."""
-        self._tx_queue.put(message, block=False)
-        assert isinstance(message, Request | Register | Subscribe), (
-            "Message must be of type Request or Register or Subscribe"
-        )
-        del_id: UUID | None = None
-        for _ in range(timeout * 10):
-            for rx_msg in self._rx_messages.values():
-                assert isinstance(rx_msg, Message)
-                if isinstance(rx_msg, Response):
-                    if rx_msg.request_id == message.id:
-                        del_id = message.id
-                        return rx_msg
-            time.sleep(0.1)
-        if del_id is not None:
-            logger.success(f"{self.name} | Response received for request: {message.id}")
-            del self._rx_messages[del_id]
+            raise e
         else:
-            logger.error(f"{self.name} | Timeout waiting for response for request: {message.id}")
-            raise ClientException("Request timed out")
+            return response
+        finally:
+            # Cancel the future to avoid resource leaks
+            future.cancel()
+
+    def _sync_send_check(self, message: Message) -> Response:
+        self._tx_queue.put(message, block=False)
+        while True:
+            if message.id in self.responses:
+                return self.responses.pop(message.id)
 
     def __listen(self):
         """Listen for messages from the broker."""
@@ -147,43 +165,72 @@ class Client:
                 continue
             if not text:
                 continue
-            # logger.debug(f"{self.name} | RX: {text}")
             text = text.decode("utf-8")
             message_type, body = text.split(" ", 1)
-            self._rx_queue.put((message_type, body), block=False)
+            message = self.__cast_model(message_type, body)
+            self._rx_queue.put(message, block=False)
+            log = f"\n# {self.name} | RX: {message_type}\n"
+            log += f"{message.model_dump_json(indent=2)}"
+            logger.trace(log)
+
+    def __cast_model(self, message_type: str, body: str) -> Message:
+        if message_type == "RESPONSE":
+            return Response.model_validate_json(body)
+        elif message_type == "PONG":
+            return Pong.model_validate_json(body)
+        elif message_type == "EVENT":
+            return Event.model_validate_json(body)
+        elif message_type == "PING":
+            return Ping.model_validate_json(body)
+        elif message_type == "REQUEST":
+            return Request.model_validate_json(body)
+        elif message_type == "REGISTER":
+            return Register.model_validate_json(body)
+        elif message_type == "SUBSCRIBE":
+            return Subscribe.model_validate_json(body)
+        elif message_type == "ACK":
+            return ACK.model_validate_json(body)
+        else:
+            raise Exception(f"Client does not support message type: {type}")
 
     def __handle(self):
         """Handle incoming messages."""
         while not self._stop.is_set():
             if self._rx_queue.empty():
                 continue
-            message_type, body = self._rx_queue.get(block=False)
-            if message_type == "RESPONSE":
-                message = Response.model_validate_json(body)
-            elif message_type == "EVENT":
-                message = Event.model_validate_json(body)
+            message = self._rx_queue.get(block=False)
+            logger.debug(f"{self.name} | Handling message: {message}")
+            assert isinstance(message, Message)
+            if message.type == MessageType.PONG:
+                assert isinstance(message, Pong)
+                self.responses[message.request_id] = message
+            elif message.type == MessageType.EVENT:
+                assert isinstance(message, Event)
                 if message.topic in self._topics:
                     self._topics[message.topic].put(message, block=False)
-            elif message_type == "REQUEST":
-                message = Request.model_validate_json(body)
-                # Ping/pong handled directly by client and not put into
-                # the request queue.
-                if message.request == "PING":
-                    response = Response(
-                        source=self.name,
-                        requestor=message.source,
-                        response="PONG",
-                        request_id=message.id,
-                    )
-                    self._tx_queue.put(response, block=False)
-                else:
-                    self.requests.put(message, block=False)
+            elif message.type == MessageType.PING:
+                assert isinstance(message, Ping)
+                pong = self._generate_pong(message)
+                self._tx_queue.put(pong, block=False)
+            elif message.type == MessageType.REQUEST:
+                assert isinstance(message, Request)
+                self.requests.put(message, block=False)
+            elif message.type == MessageType.RESPONSE:
+                assert isinstance(message, Response)
+                self.responses[message.request_id] = message
+            elif message.type == MessageType.ACK:
+                assert isinstance(message, Response)
+                self.responses[message.request_id] = message
             else:
-                raise Exception(f"Client does not support message type: {message_type}")
-            self._rx_messages[message.id] = message
-            log = f"{self.name} | RX: {message_type}\n"
-            log += f"{message.model_dump_json(indent=2)}"
-            # logger.debug(log)
+                raise Exception(f"Client does not support message type: {message.type}")
+
+    def _generate_pong(self, ping: Ping) -> Pong:
+        """Generate a PONG message from a PING message."""
+        return Pong(
+            source=self.name,
+            requestor=ping.source,
+            request_id=ping.id,
+        )
 
     def __send(self):
         """Send messages to the broker."""
@@ -194,6 +241,6 @@ class Client:
             assert isinstance(message, Message)
             body = f"{message.type.value} {message.model_dump_json()}"
             self._socket.send_string(body)
-            log = f"{self.name} | TX: {message.type.value}\n"
+            log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
-            # logger.debug(log)
+            logger.trace(log)

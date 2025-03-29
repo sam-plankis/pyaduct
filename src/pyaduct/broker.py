@@ -1,4 +1,5 @@
 import datetime
+import random
 import threading
 import time
 from multiprocessing import Queue
@@ -9,12 +10,19 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
-from .models import Event, Message, Register, Request, Response, Subscribe
+from .models import ACK, Event, Message, Ping, Pong, Register, Request, Response, Subscribe
+
+
+class BrokerError(BaseException):
+    """Custom exception for Broker errors."""
+
+    pass
 
 
 class Broker:
-    def __init__(self, socket: Socket):
+    def __init__(self, socket: Socket, latency: tuple[int, int] | None = None):
         assert isinstance(socket, Socket)
+        self._latency = latency
         self._socket = socket
         self.clients: dict[str, bytes] = {}
         self._stop = threading.Event()
@@ -86,7 +94,10 @@ class Broker:
                 "EVENT": (Event, self._handle_event),
                 "SUBSCRIBE": (Subscribe, self._handle_subscribe),
                 "REGISTER": (Register, self._handle_register),
+                "PING": (Ping, self._handle_request),
+                "PONG": (Pong, self._handle_response),
             }
+            assert message_type in message_types, f"Unknown message type: {message_type}"
             model, function = message_types[message_type]
             try:
                 message = model.model_validate_json(body)
@@ -95,30 +106,28 @@ class Broker:
                 logger.error(f"Error validating message: {e}")
                 return
             function(message, client_id)
-            log = f"{self.name} | RX: {message.type.value}\n"
+            log = f"\n# {self.name} | RX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.trace(log)
 
     def _handle_register(self, register: Register, client_id: bytes):
         if register.source not in self.clients:
             self.clients[register.source] = client_id
-        response = Response(
+        ack = ACK(
             source="broker",
             requestor=register.source,
-            response="ACK",
             request_id=register.id,
         )
-        self._tx_queue.put((response, None), block=False)
+        self._tx_queue.put((ack, None), block=False)
 
     def _handle_subscribe(self, subscribe: Subscribe, client_id: bytes):
         _ = client_id
         if subscribe.topic not in self._topics:
             self._topics[subscribe.topic] = []
         self._topics[subscribe.topic].append(subscribe.source)
-        response = Response(
+        response = ACK(
             source="broker",
             requestor=subscribe.source,
-            response="ACK",
             request_id=subscribe.id,
         )
         self._tx_queue.put((response, None), block=False)
@@ -168,28 +177,57 @@ class Broker:
             if self._tx_queue.empty():
                 continue
             message, client_id = self._tx_queue.get(block=False)
-            assert isinstance(message, (Request, Response, Event))
+            assert isinstance(message, (Request, Response, Event, Ping, Pong, ACK))
             if isinstance(message, Request):
                 self._send_request(message)
-            if isinstance(message, Response):
+            elif isinstance(message, Response):
                 self._send_response(message)
-            if isinstance(message, Event):
+            elif isinstance(message, Event):
                 assert isinstance(client_id, bytes)
                 self._send_event(message, client_id)
-            log = f"{self.name} | TX: {message.type.value}\n"
+            elif isinstance(message, Ping):
+                assert isinstance(client_id, bytes)
+                self._send_request(message)
+            elif isinstance(message, Pong):
+                assert isinstance(client_id, bytes)
+                self._send_response(message)
+            elif isinstance(message, ACK):
+                assert isinstance(client_id, bytes)
+                self._send_response(message)
+            else:
+                logger.error(f"Unknown message type: {type(message)}")
+                raise BrokerError(f"Unknown message type: {type(message)}")
+            log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.trace(log)
 
     def _send_request(self, request: Request):
         self._pending[request.id] = request
         text = f"{request.type.value} {request.model_dump_json()}"
-        self._socket.send_multipart([self.clients[request.target], b"", text.encode("utf-8")])
+        target = self.clients.get(request.target)
+        if target is None:
+            logger.error(f"Unknown target: {request.target}")
+            return
+        client_id = self.clients[request.target]
+        # self._socket.send_multipart([self.clients[request.target], b"", text.encode("utf-8")])
+        self._send_multipart(client_id, text)
 
     def _send_response(self, response: Response):
         text = f"{response.type.value} {response.model_dump_json()}"
         client_id = self.clients[response.requestor]
-        self._socket.send_multipart([client_id, b"", text.encode("utf-8")])
+        # self._socket.send_multipart([client_id, b"", text.encode("utf-8")])
+        self._send_multipart(client_id, text)
 
     def _send_event(self, event: Event, client_id: bytes):
         text = f"{event.type.value} {event.model_dump_json()}"
+        # self._socket.send_multipart([client_id, b"", text.encode("utf-8")])
+        self._send_multipart(client_id, text)
+
+    def _send_multipart(self, client_id: bytes, text: str):
+        if self._latency:
+            lower, upper = self._latency
+            random_sleep = random.uniform(lower, upper)
+            time.sleep(random_sleep)
+        assert isinstance(client_id, bytes)
+        assert isinstance(text, str)
         self._socket.send_multipart([client_id, b"", text.encode("utf-8")])

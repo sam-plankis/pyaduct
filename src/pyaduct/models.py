@@ -1,10 +1,10 @@
 import datetime
-import json
 from enum import Enum
 from uuid import UUID, uuid4
 
-from loguru import logger
 from pydantic import BaseModel, Field
+
+from .utils import generate_datetime
 
 
 class MessageType(Enum):
@@ -13,27 +13,16 @@ class MessageType(Enum):
     EVENT = "EVENT"
     REGISTER = "REGISTER"
     SUBSCRIBE = "SUBSCRIBE"
+    PING = "PING"
+    PONG = "PONG"
+    ACK = "ACK"
 
 
 class Message(BaseModel):
     id: UUID = Field(default_factory=uuid4)
-    source: str
     type: MessageType
-
-    # timestamp: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
-    def generate_datetime() -> datetime.datetime:
-        return datetime.datetime.now(datetime.timezone.utc)
-
     timestamp: datetime.datetime = Field(default_factory=generate_datetime)
-
-    @classmethod
-    def from_json(cls, json_str: str):
-        try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError:
-            logger.error(f"Error decoding JSON: {json_str}")
-            return None
-        return cls(**data)
+    source: str
 
 
 class Register(Message):
@@ -63,3 +52,18 @@ class Event(Message):
 class Subscribe(Message):
     type: MessageType = MessageType.SUBSCRIBE
     topic: str
+
+
+class Ping(Request):
+    type: MessageType = MessageType.PING
+    request: str = "Ping"
+
+
+class Pong(Response):
+    type: MessageType = MessageType.PONG
+    response: str = "Pong"
+
+
+class ACK(Response):
+    type: MessageType = MessageType.ACK
+    response: str = "ACK"
