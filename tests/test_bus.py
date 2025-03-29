@@ -1,3 +1,4 @@
+import time
 from pyaduct import Broker, Client, Event
 
 
@@ -8,6 +9,7 @@ def test_ipc_bus(
 ):
     """Test the IPC broker."""
     client_1_event_queue = ipc_client_1.subscribe("test_topic")
+    time.sleep(0.1)
     event = ipc_client_2.generate_event("test_topic", "hello world")
     ipc_client_2.publish(event)
     rx_event = client_1_event_queue.get(timeout=2)
