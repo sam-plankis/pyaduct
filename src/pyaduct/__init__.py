@@ -11,7 +11,7 @@ from .models import (
     Ping,  # noqa: F401
     Pong,  # noqa: F401
 )
-from .factory import BrokerFactory  # noqa F401
+from .factory import ClientFactory, BrokerFactory  # noqa F401
 from .store import IMessageStore, InmemMessageStore  # noqa F401
 from loguru import logger
 
