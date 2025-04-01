@@ -1,18 +1,18 @@
 import os
-import shutil
 import threading
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Generator, Union
+from typing import Generator
 
 import pytest
 from loguru import logger
 from zmq import DEALER, ROUTER, Context
-from zmq.auth import create_certificates, load_certificate
+from zmq.auth import load_certificate
 from zmq.auth.thread import ThreadAuthenticator
 
 from pyaduct import Broker, Client
+from pyaduct.certs import generate_certificates
 from pyaduct.store import InmemMessageStore
 
 logger.enable("pyaduct")
@@ -52,31 +52,6 @@ def certs() -> Generator[tuple[Path, Path], None, None]:
     secret_keys_dir = Path(os.path.join(temp_path, "private_keys"))
     yield (public_keys_dir, secret_keys_dir)
     temp_dir.cleanup()
-
-
-def generate_certificates(base_dir: Union[str, os.PathLike]) -> None:
-    """Generate client and server CURVE certificate files"""
-    keys_dir = os.path.join(base_dir, "certificates")
-    public_keys_dir = os.path.join(base_dir, "public_keys")
-    secret_keys_dir = os.path.join(base_dir, "private_keys")
-    for d in [keys_dir, public_keys_dir, secret_keys_dir]:
-        if os.path.exists(d):
-            shutil.rmtree(d)
-        os.mkdir(d)
-    create_certificates(keys_dir, "server")
-    create_certificates(keys_dir, "client")
-    for key_file in os.listdir(keys_dir):
-        if key_file.endswith(".key"):
-            shutil.move(
-                os.path.join(keys_dir, key_file),
-                os.path.join(public_keys_dir, "."),
-            )
-    for key_file in os.listdir(keys_dir):
-        if key_file.endswith(".key_secret"):
-            shutil.move(
-                os.path.join(keys_dir, key_file),
-                os.path.join(secret_keys_dir, "."),
-            )
 
 
 @pytest.fixture
