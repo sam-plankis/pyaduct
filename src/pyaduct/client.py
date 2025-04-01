@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -9,7 +11,21 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
-from .models import ACK, Event, Message, MessageType, Ping, Pong, Register, Request, Response, Subscribe
+from pyaduct.store import IMessageStore
+
+from .models import (
+    ACK,
+    Command,
+    Event,
+    Message,
+    MessageType,
+    Ping,
+    Pong,
+    Register,
+    Request,
+    Response,
+    Subscribe,
+)
 from .utils import generate_random_md5
 
 
@@ -23,10 +39,12 @@ class Client:
     def __init__(
         self,
         socket: Socket,
+        store: IMessageStore | None = None,
         name: str | None = None,
     ):
         assert isinstance(socket, Socket), "Socket must be of type zmq.Socket"
         self._socket = socket
+        self.store: IMessageStore | None = store
         if name:
             _name = name
         else:
@@ -66,7 +84,7 @@ class Client:
             thread.join()
         self._socket.close()
 
-    def subscribe(self, topic: str) -> Queue:
+    def subscribe(self, topic: str) -> Queue[Event]:
         logger.info(f"{self.name} | Subscribing to topic: {topic}")
         subscribe = Subscribe(source=self.name, topic=topic)
         try:
@@ -80,13 +98,26 @@ class Client:
 
     def ping(self, target: str) -> bool:
         """Ping a target and wait for a PONG response."""
-        ping = Ping(source=self.name, target=target, request="PING")
+        ping = Ping(source=self.name, target=target)
         if response := self._sync_send(ping, 2):
             if response.type == MessageType.PONG:
                 logger.success(f"{self.name} | PING successful to : {target}")
                 return True
         logger.warning(f"{self.name} | PING failed to : {target}")
         return False
+
+    def get_clients(self) -> list[str] | None:
+        """Returns a list of other clients."""
+        command = Command(
+            source=self.name,
+            target="broker",
+            body="GET_CLIENTS",
+        )
+        response = self._sync_send(command, 2)
+        if response and response.type == MessageType.RESPONSE:
+            clients = response.body.split(",")
+            logger.success(f"{self.name} | Found clients: {clients}")
+            return [client.strip() for client in clients if client.strip()]
 
     def publish(self, event: Event):
         assert isinstance(event, Event), "Event must be of type Event"
@@ -100,12 +131,16 @@ class Client:
     def generate_request(
         self,
         target: str,
-        request: Request,
+        body: str,
         timeout: int = 5,
     ) -> Request:
         """Builds a Request so that the source is already populated."""
-        request_str: str = request.model_dump_json()
-        return Request(source=self.name, target=target, body=request_str, timeout=timeout)
+        return Request(
+            source=self.name,
+            target=target,
+            body=body,
+            timeout=timeout,
+        )
 
     def generate_event(self, topic: str, body: str) -> Event:
         """Builds an Event so that the source is already populated."""
@@ -132,7 +167,9 @@ class Client:
                 logger.error(f"{self.name} | Failed to register with broker: {response.body}")
                 raise ClientException("Failed to register with broker")
 
-    def _sync_send(self, message: Ping | Register | Request | Subscribe, timeout: int) -> Response | None:
+    def _sync_send(
+        self, message: Ping | Register | Request | Subscribe, timeout: int
+    ) -> Response | None:
         """Synchronous send. Waits for response."""
         future = self._executor.submit(self._sync_send_check, message)
         response: Response | None = None
@@ -220,6 +257,8 @@ class Client:
                 self.responses[message.request_id] = message
             else:
                 raise Exception(f"Client does not support message type: {message.type}")
+            if self.store is not None:
+                self.store.add_rx_message(message)
 
     def _generate_pong(self, ping: Ping) -> Pong:
         """Generate a PONG message from a PING message."""
@@ -241,3 +280,5 @@ class Client:
             log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.debug(log)
+            if self.store is not None:
+                self.store.add_tx_message(message)

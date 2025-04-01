@@ -10,7 +10,19 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
-from .models import ACK, Event, Message, Ping, Pong, Register, Request, Response, Subscribe
+from .models import (
+    ACK,
+    Command,
+    Event,
+    Message,
+    Ping,
+    Pong,
+    Register,
+    Request,
+    Response,
+    Subscribe,
+)
+from .store import IMessageStore
 
 
 class BrokerError(BaseException):
@@ -20,10 +32,16 @@ class BrokerError(BaseException):
 
 
 class Broker:
-    def __init__(self, socket: Socket, latency: tuple[int, int] | None = None):
+    def __init__(
+        self,
+        socket: Socket,
+        store: IMessageStore | None = None,
+        latency: tuple[float, float] | None = None,
+    ):
         assert isinstance(socket, Socket)
         self._latency = latency
         self._socket = socket
+        self.store: IMessageStore | None = store
         self.clients: dict[str, bytes] = {}
         self._stop = threading.Event()
         self._threads: dict[str, Thread] = {}
@@ -41,7 +59,7 @@ class Broker:
         self._seen: set[UUID] = set()
         self._tx_queue: Queue[tuple[Event | Request | Response, bytes | None]] = Queue()
         self._rx_queue: Queue[tuple[bytes | None, str, str]] = Queue()
-        self.name: str = "Broker"
+        self.name: str = "broker"
 
     def start(self):
         for thread in self._threads.values():
@@ -89,6 +107,7 @@ class Broker:
             client_id, message_type, rx_model = self._rx_queue.get(block=False)
             assert isinstance(client_id, bytes)
             message_types = {
+                "COMMAND": (Command, self._handle_command),
                 "REQUEST": (Request, self._handle_request),
                 "RESPONSE": (Response, self._handle_response),
                 "EVENT": (Event, self._handle_event),
@@ -107,6 +126,9 @@ class Broker:
             except Exception as e:
                 logger.error(f"Error validating message: {e}")
                 return
+            else:
+                if self.store is not None:
+                    self.store.add_rx_message(message)
             function(message, client_id)
             log = f"\n# {self.name} | RX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
@@ -144,30 +166,21 @@ class Broker:
             logger.warning(f"No subscribers for topic: {event.topic}")
 
     def _handle_request(self, request: Request, client_id: bytes):
-        if request.target == "broker":
-            self._handle_broker_request(request, client_id)
-            return
         _ = client_id
         self._tx_queue.put((request, None), block=False)
 
-    def _handle_broker_request(self, request: Request, client_id: bytes):
-        clients = ",".join([name for name in self.clients.keys()])
-        if request.body == "GET_CLIENTS":
+    def _handle_command(self, command: Command, client_id: bytes):
+        _ = client_id  # We don't use client_id for commands
+        current_client = command.source
+        if command.body == "GET_CLIENTS":
+            clients = ",".join([name for name in self.clients.keys() if name != current_client])
             response = Response(
                 body=clients,
-                requestor=request.source,
-                request_id=request.id,
+                requestor=command.source,
+                request_id=command.id,
                 source="broker",
             )
-        else:
-            logger.error(f"Unknown broker request: {request.body}")
-            response = Response(
-                body="Unknown broker request",
-                requestor=request.source,
-                request_id=request.id,
-                source="broker",
-            )
-        self._tx_queue.put((response, None), block=False)
+            self._tx_queue.put((response, None), block=False)
 
     def _handle_response(self, response: Response, client_id: bytes):
         _ = client_id
@@ -202,6 +215,8 @@ class Broker:
             log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.trace(log)
+            if self.store is not None:
+                self.store.add_rx_message(message)
 
     def _send_request(self, request: Request):
         self._pending[request.id] = request
