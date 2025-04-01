@@ -1,8 +1,9 @@
 # pyaduct
 
-Sometimes all you need is duct tape. Create a bridge between your
-Python classes, whether they are running on the same system (IPC), or
-distributed across multiple machines (TCP/IP).
+Sometimes all you need is duct tape. `pyaduct` is a messaging bus that 
+can create a bridge between your Python classes, whether they are 
+running on the same system (IPC), or distributed across multiple 
+machines (TCP/IP).
 
 Stand up the Broker, inject Clients, and your classes can communicate
 seamlessly - locally or over the wire.
