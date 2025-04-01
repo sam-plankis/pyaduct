@@ -1,6 +1,6 @@
 [project]
 name = "pyaduct"
-version = "0.1.1"
+version = "0.1.2"
 description = "Simple and easy to use message bus, supporting IPC and TCP."
 readme = "README.md"
 authors = [
