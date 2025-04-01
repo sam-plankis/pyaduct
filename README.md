@@ -54,7 +54,7 @@ proudly supports a single point of failure (namely, the Broker). Use in
 production at your own risk.
 
 `pyaduct` is changing fast; expect breaking changes as as the
-implementation stabilizes and approached 1.0.0.
+implementation stabilizes and approaches 1.0.
 
 However, it is great for standing up a proof of concept which could
 later be implemented with a more robust system such as Kafka.
