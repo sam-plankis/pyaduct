@@ -5,6 +5,12 @@ Sometimes all you need is duct tape.
 Model actor-based systems in IPC, and then deploy securely using TCP/IP,
 using the same abstractions.
 
+# Installation
+
+`pip install pyaduct`
+
+# The Abstraction
+
 `pydduct` provides two main classes - the Broker and Client. A Broker can
 be be bound to a IPC or TCP socket, and is the central message router
 for the system. Any number of Clients can be connected to the Broker,
@@ -13,8 +19,10 @@ and these clients expose two primary message patterns:
 - Request/Response
 - Publish/Subscribe
 
-Using the ZeroMQ DEALER and ROUTER sockets under the hood, pyaduct
+Using the ZeroMQ DEALER and ROUTER sockets under the hood, `pyaduct`
 supports a fully asynchonrous messaging model.
+
+# Examples
 
 See the `examples/` for more details on how to integrate the Broker
 and Client into an actor based messaging system.
@@ -22,14 +30,21 @@ and Client into an actor based messaging system.
 Or run `pyaduct demo` to see a live demo of the nodes coming online,
 sending various messages, events, and pings, and cleanly shutting down.
 
+# Convenient
+
 There are other conveience methods exposed by Clients to help them
 communicate with one another -
 
 - Get a complete list of clients from the broker
 - Ping other clients
 
-`pyaduct` supports a simple in-memory message store for now, with
-support for a simple `sqlite` backend coming soon.
+# Message Store
+
+Boasting UUID7 message IDs for global messager ordering, `pyaduct` also
+supports a simple in-memory message store for now, with support for a
+`sqlite` backend coming soon.
+
+# Production?
 
 Is `pyaduct` fault tolerant? Resilent to network failures? Complicated
 leader consensus mechanisms? None of the above! `pyaduct` proudly
