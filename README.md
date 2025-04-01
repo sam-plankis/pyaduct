@@ -1,9 +1,11 @@
 # pyaduct
 
-Sometimes all you need is duct tape.
+Sometimes all you need is duct tape. Create a bridge between your
+Python classes, whether they are running on the same system (IPC), or
+distributed across multiple machines (TCP/IP).
 
-Model actor-based systems in IPC, and then deploy securely using TCP/IP,
-using the same abstractions.
+Stand up the Broker, inject Clients, and your classes can communicate
+seamlessly - locally or over the wire.
 
 # Installation
 
@@ -12,7 +14,7 @@ using the same abstractions.
 # The Abstraction
 
 `pydduct` provides two main classes - the Broker and Client. A Broker can
-be be bound to a IPC or TCP socket, and is the central message router
+be be bound to a IPC or TCP/IP socket, and is the central message router
 for the system. Any number of Clients can be connected to the Broker,
 and these clients expose two primary message patterns:
 
@@ -40,16 +42,19 @@ communicate with one another -
 
 # Message Store
 
-Boasting UUID7 message IDs for global messager ordering, `pyaduct` also
-supports a simple in-memory message store for now, with support for a
-`sqlite` backend coming soon.
+Boasting UUID7 IDs for global message ordering, `pyaduct` also supports
+a simple in-memory message store for now, with support for a `sqlite`
+backend coming soon.
 
 # Production?
 
-Is `pyaduct` fault tolerant? Resilent to network failures? Complicated
-leader consensus mechanisms? None of the above! `pyaduct` proudly
-supports a single point of failure (namely, the Broker). Use in
+Is `pyaduct` fault tolerant? Resilent to network failures? Contains
+complicated leader consensus mechanisms? None of the above! `pyaduct`
+proudly supports a single point of failure (namely, the Broker). Use in
 production at your own risk.
+
+`pyaduct` is changing fast; expect breaking changes as as the
+implementation stabilizes and approached 1.0.0.
 
 However, it is great for standing up a proof of concept which could
 later be implemented with a more robust system such as Kafka.
