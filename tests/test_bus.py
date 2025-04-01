@@ -1,4 +1,5 @@
 from pyaduct import Broker, Client, Event
+from pyaduct.store import IMessageStore
 
 
 def test_ipc_bus(
@@ -6,8 +7,10 @@ def test_ipc_bus(
     ipc_client_1: Client,
     ipc_client_2: Client,
 ):
-    """Test the IPC broker."""
-    assert ipc_broker.store
+    """Test the IPC bus."""
+    assert isinstance(ipc_broker.store, IMessageStore)
+    assert isinstance(ipc_client_1.store, IMessageStore)
+    assert isinstance(ipc_client_2.store, IMessageStore)
     client_1_event_queue = ipc_client_1.subscribe("test_topic")
     event = ipc_client_2.generate_event("test_topic", "hello world")
     ipc_client_2.publish(event)
@@ -15,17 +18,5 @@ def test_ipc_bus(
     assert isinstance(rx_event, Event)
     assert event.body == "hello world"
     assert ipc_client_1.ping("client_2")
-    assert len(ipc_broker.store.messages) == 9
+    assert len(ipc_broker.store) == 9
     assert ipc_client_1.get_clients() == ["client_2"]
-
-
-# def test_tcp_bus(
-#     tcp_broker: Broker,
-#     tcp_client_1: Client,
-#     tcp_client_2: Client,
-# ):
-#     """Test the TCP broker."""
-#     domain_event = DomainEvent()
-#     tcp_client_1.subscribe("test_topic")
-#     tcp_client_2.generate_event("test_topic", domain_event)
-#     assert tcp_client_1.ping("client_2")

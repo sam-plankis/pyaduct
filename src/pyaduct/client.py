@@ -11,6 +11,8 @@ from uuid import UUID
 from loguru import logger
 from zmq import NOBLOCK, Again, Socket
 
+from pyaduct.store import IMessageStore
+
 from .models import (
     ACK,
     Command,
@@ -37,10 +39,12 @@ class Client:
     def __init__(
         self,
         socket: Socket,
+        store: IMessageStore | None = None,
         name: str | None = None,
     ):
         assert isinstance(socket, Socket), "Socket must be of type zmq.Socket"
         self._socket = socket
+        self.store: IMessageStore | None = store
         if name:
             _name = name
         else:
@@ -253,6 +257,8 @@ class Client:
                 self.responses[message.request_id] = message
             else:
                 raise Exception(f"Client does not support message type: {message.type}")
+            if self.store is not None:
+                self.store.add_rx_message(message)
 
     def _generate_pong(self, ping: Ping) -> Pong:
         """Generate a PONG message from a PING message."""
@@ -274,3 +280,5 @@ class Client:
             log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.debug(log)
+            if self.store is not None:
+                self.store.add_tx_message(message)

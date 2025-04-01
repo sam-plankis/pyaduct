@@ -22,7 +22,7 @@ from .models import (
     Response,
     Subscribe,
 )
-from .store import IBrokerStore
+from .store import IMessageStore
 
 
 class BrokerError(BaseException):
@@ -35,13 +35,13 @@ class Broker:
     def __init__(
         self,
         socket: Socket,
-        store: IBrokerStore | None = None,
+        store: IMessageStore | None = None,
         latency: tuple[float, float] | None = None,
     ):
         assert isinstance(socket, Socket)
         self._latency = latency
         self._socket = socket
-        self.store: IBrokerStore | None = store
+        self.store: IMessageStore | None = store
         self.clients: dict[str, bytes] = {}
         self._stop = threading.Event()
         self._threads: dict[str, Thread] = {}
@@ -59,7 +59,7 @@ class Broker:
         self._seen: set[UUID] = set()
         self._tx_queue: Queue[tuple[Event | Request | Response, bytes | None]] = Queue()
         self._rx_queue: Queue[tuple[bytes | None, str, str]] = Queue()
-        self.name: str = "Broker"
+        self.name: str = "broker"
 
     def start(self):
         for thread in self._threads.values():
@@ -126,14 +126,15 @@ class Broker:
             except Exception as e:
                 logger.error(f"Error validating message: {e}")
                 return
+            else:
+                if self.store is not None:
+                    self.store.add_rx_message(message)
             function(message, client_id)
             log = f"\n# {self.name} | RX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.trace(log)
 
     def _handle_register(self, register: Register, client_id: bytes):
-        if self.store:
-            self.store.add_message(register)
         if register.source not in self.clients:
             self.clients[register.source] = client_id
         ack = ACK(
@@ -142,12 +143,8 @@ class Broker:
             request_id=register.id,
         )
         self._tx_queue.put((ack, None), block=False)
-        if self.store:
-            self.store.add_message(ack)
 
     def _handle_subscribe(self, subscribe: Subscribe, client_id: bytes):
-        if self.store:
-            self.store.add_message(subscribe)
         _ = client_id
         if subscribe.topic not in self._topics:
             self._topics[subscribe.topic] = []
@@ -158,8 +155,6 @@ class Broker:
             request_id=subscribe.id,
         )
         self._tx_queue.put((response, None), block=False)
-        if self.store:
-            self.store.add_message(response)
 
     def _handle_event(self, event: Event, client_id: bytes):
         _ = client_id
@@ -167,16 +162,12 @@ class Broker:
             for client in self._topics[event.topic]:
                 client_id = self.clients[client]
                 self._tx_queue.put((event, client_id), block=False)
-                if self.store:
-                    self.store.add_message(event)
         else:
             logger.warning(f"No subscribers for topic: {event.topic}")
 
     def _handle_request(self, request: Request, client_id: bytes):
         _ = client_id
         self._tx_queue.put((request, None), block=False)
-        if self.store:
-            self.store.add_message(request)
 
     def _handle_command(self, command: Command, client_id: bytes):
         _ = client_id  # We don't use client_id for commands
@@ -190,15 +181,11 @@ class Broker:
                 source="broker",
             )
             self._tx_queue.put((response, None), block=False)
-            if self.store:
-                self.store.add_message(response)
 
     def _handle_response(self, response: Response, client_id: bytes):
         _ = client_id
         self._seen.add(response.request_id)
         self._send_response(response)
-        if self.store:
-            self.store.add_message(response)
 
     def __send(self):
         while not self._stop.is_set():
@@ -228,6 +215,8 @@ class Broker:
             log = f"\n# {self.name} | TX: {message.type.value}\n"
             log += f"{message.model_dump_json(indent=2)}"
             logger.trace(log)
+            if self.store is not None:
+                self.store.add_rx_message(message)
 
     def _send_request(self, request: Request):
         self._pending[request.id] = request

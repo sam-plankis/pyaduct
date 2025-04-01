@@ -12,7 +12,7 @@ from .models import (
     Pong,  # noqa: F401
 )
 from .factory import BrokerFactory  # noqa F401
-from .store import IBrokerStore, InmemBrokerStore  # noqa F401
+from .store import IMessageStore, InmemMessageStore  # noqa F401
 from loguru import logger
 
 
